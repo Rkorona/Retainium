@@ -6,8 +6,7 @@ use std::path::{Path, PathBuf};
 /// 磁盘上的配置文件结构。
 ///
 /// 特意跟 sources::AppConfig 分开定义（即使字段几乎一样），因为：
-/// 1. AppConfig 里的 installed_version 是运行时状态，不该让用户在配置文件里手改，
-///    这里就不提供这个字段，安装版本只走 SQLite 记录。
+/// 1. AppConfig 里的 installed_version 是运行时状态，直接查询设备获取，不由用户在配置文件里维护。
 /// 2. 配置文件的字段命名要顾及可读性（用户会直接编辑），不用完全照搬内部类型。
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileConfig {
@@ -42,7 +41,7 @@ impl From<&AppEntry> for AppConfig {
             source_identifier: entry.identifier.clone(),
             apk_pattern: entry.apk_pattern.clone(),
             apk_exclude_pattern: entry.apk_exclude_pattern.clone(),
-            installed_version: None, // 由调用方从 SQLite 的安装历史里查出来再填充
+            installed_version: None, // 由调用方通过 pm dump 查询设备后填充
             package_name: entry.package_name.clone(),
         }
     }

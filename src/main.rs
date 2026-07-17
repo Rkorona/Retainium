@@ -1,7 +1,6 @@
 mod config;
 mod installer;
 mod sources;
-mod storage;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
@@ -9,7 +8,6 @@ use config::AppEntry;
 use installer::{installer_for, InstallOutcome, Installer, InstallerBackend};
 use sources::{source_for, AppConfig, SourceType, UpdateCheckResult};
 use std::path::PathBuf;
-use storage::Storage;
 
 #[derive(Parser)]
 #[command(
@@ -20,10 +18,6 @@ struct Cli {
     /// 订阅配置文件路径（TOML，可直接编辑），默认 ~/.config/retainium/apps.toml
     #[arg(long, global = true)]
     config: Option<PathBuf>,
-
-    /// 安装历史数据库路径，默认 ~/.local/share/retainium/retainium.db
-    #[arg(long, global = true)]
-    db: Option<PathBuf>,
 
     /// 安装方式：rish（Shizuku）或 adb
     #[arg(long, global = true, value_enum, default_value = "rish")]
@@ -55,7 +49,7 @@ enum Command {
     },
     /// 移除一个订阅
     Remove { id: String },
-    /// 列出所有订阅
+    /// 列出所有订阅及设备上的已安装版本
     List,
     /// 打印配置文件路径（方便你直接用编辑器打开手动改 apk_pattern 之类的字段）
     ConfigPath,
@@ -66,8 +60,6 @@ enum Command {
         /// 只更新指定 id，不传则更新全部
         id: Option<String>,
     },
-    /// 查看某个 app 的安装历史
-    History { id: String },
 }
 
 impl clap::ValueEnum for SourceType {
@@ -90,11 +82,6 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let config_path = cli.config.unwrap_or_else(config::default_config_path);
-    let db_path = cli.db.unwrap_or_else(default_db_path);
-    if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent).ok();
-    }
-    let storage = Storage::open(&db_path)?;
 
     let download_dir = cli
         .download_dir
@@ -147,12 +134,15 @@ async fn main() -> Result<()> {
                     "暂无订阅，用 `retainium add` 添加，或直接编辑 {}",
                     config_path.display()
                 );
+                return Ok(());
             }
+            let backend = installer_for(cli.installer);
             for entry in &file_config.app {
-                let installed = storage
-                    .latest_installed_version(&entry.id)?
-                    .map(|r| r.version_name)
-                    .unwrap_or_else(|| "(未安装)".to_string());
+                let app = build_app_config(entry, backend.as_ref()).await;
+                let installed = app
+                    .ok()
+                    .and_then(|a| a.installed_version)
+                    .unwrap_or_else(|| "(未安装或无 package_name)".to_string());
                 println!(
                     "{}\t{:?}\t{}\t当前版本: {}",
                     entry.id, entry.source, entry.identifier, installed
@@ -168,7 +158,7 @@ async fn main() -> Result<()> {
             let file_config = config::load(&config_path)?;
             let backend = installer_for(cli.installer);
             for entry in &file_config.app {
-                let app = build_app_config(entry, &storage, backend.as_ref()).await?;
+                let app = build_app_config(entry, backend.as_ref()).await?;
                 match check_one(&app).await {
                     Ok(UpdateCheckResult::UpToDate) => {
                         println!("{}: 已是最新", app.id);
@@ -205,7 +195,7 @@ async fn main() -> Result<()> {
                     }
                 }
 
-                let app = build_app_config(entry, &storage, backend.as_ref()).await?;
+                let app = build_app_config(entry, backend.as_ref()).await?;
 
                 match check_one(&app).await {
                     Ok(UpdateCheckResult::UpToDate) => {
@@ -229,22 +219,10 @@ async fn main() -> Result<()> {
                             continue;
                         }
 
-                        // 尽量从 APK 提取包名：优先用已知的，否则用 aapt（需 `pkg install aapt`）
-                        let pkg_name: Option<String> = app.package_name.clone()
-                            .or_else(|| installer::extract_package_name(&apk_path));
-
                         println!("{}: 下载完成，开始安装...", app.id);
                         match backend.install(&apk_path).await {
                             Ok(InstallOutcome::Success) => {
                                 println!("{}: 安装成功 ({})", app.id, release.version_name);
-                                storage.record_install(
-                                    &app.id,
-                                    &release.version_name,
-                                    release.version_code,
-                                    &release.apk_url,
-                                    true,
-                                    pkg_name.as_deref(),
-                                )?;
                             }
                             Ok(InstallOutcome::RequiresUserConfirmation) => {
                                 println!(
@@ -252,25 +230,9 @@ async fn main() -> Result<()> {
                                     app.id,
                                     apk_path.display()
                                 );
-                                storage.record_install(
-                                    &app.id,
-                                    &release.version_name,
-                                    release.version_code,
-                                    &release.apk_url,
-                                    false,
-                                    pkg_name.as_deref(),
-                                )?;
                             }
                             Ok(InstallOutcome::Failed(msg)) => {
                                 eprintln!("{}: 安装失败 - {msg}", app.id);
-                                storage.record_install(
-                                    &app.id,
-                                    &release.version_name,
-                                    release.version_code,
-                                    &release.apk_url,
-                                    false,
-                                    pkg_name.as_deref(),
-                                )?;
                             }
                             Err(e) => {
                                 eprintln!("{}: 安装出错 - {e:#}", app.id);
@@ -283,74 +245,38 @@ async fn main() -> Result<()> {
                 }
             }
         }
-
-        Command::History { id } => {
-            let records = storage.history_for(&id)?;
-            if records.is_empty() {
-                println!("{id}: 无安装历史");
-            }
-            for r in records {
-                println!(
-                    "[{}] {} - {} ({})",
-                    r.installed_at.format("%Y-%m-%d %H:%M"),
-                    r.version_name,
-                    if r.success {
-                        "成功"
-                    } else {
-                        "失败/待确认"
-                    },
-                    r.apk_url
-                );
-            }
-        }
     }
 
     Ok(())
 }
 
-/// 把 TOML 里的静态配置 + SQLite 里的运行时状态（已装版本）合并成
-/// UpdateSource 需要的完整 AppConfig。
+/// 把 TOML 里的静态配置合并成 UpdateSource 需要的完整 AppConfig，
+/// 并直接查询设备上的已安装版本（无数据库，始终反映真实状态）。
 ///
-/// 包名解析优先级（从高到低）：
+/// 包名解析优先级：
 ///   1. TOML 中显式配置的 package_name
 ///   2. F-Droid 订阅：source_identifier 本身就是包名
-///   3. 数据库里上次安装时记录的包名
-/// 只要拿到包名，就直接查询设备真实已安装版本（pm dump），
-/// 而不依赖可能被删除的 SQLite 历史。
-async fn build_app_config(
-    entry: &AppEntry,
-    storage: &Storage,
-    backend: &dyn Installer,
-) -> Result<AppConfig> {
+async fn build_app_config(entry: &AppEntry, backend: &dyn Installer) -> Result<AppConfig> {
     let mut app: AppConfig = entry.into();
 
-    // 三级级联解析包名
+    // 解析包名
     let pkg: Option<String> = if let Some(p) = &entry.package_name {
         Some(p.clone())
     } else if entry.source == sources::SourceType::FDroid {
         // F-Droid 的 identifier 就是 Android 包名
         Some(entry.identifier.clone())
     } else {
-        // 从历史记录里取上次安装时保存的包名
-        storage.stored_package_name(&entry.id)?
+        None
     };
 
-    // 有包名就查设备真实版本，优先于数据库历史
+    // 有包名就直接查设备真实版本
     if let Some(ref p) = pkg {
-        if let Some((version_name, _version_code)) = backend.installed_version(p).await {
+        if let Some((version_name, _)) = backend.installed_version(p).await {
             app.installed_version = Some(version_name);
-            app.package_name = Some(p.clone());
-            return Ok(app);
         }
+        app.package_name = Some(p.clone());
     }
 
-    // 回退到数据库历史（设备未安装或包名未知）
-    app.installed_version = storage
-        .latest_installed_version(&entry.id)?
-        .map(|r| r.version_name);
-    if let Some(p) = pkg {
-        app.package_name = Some(p);
-    }
     Ok(app)
 }
 
@@ -359,7 +285,7 @@ async fn check_one(app: &AppConfig) -> Result<UpdateCheckResult> {
     let latest = source.fetch_latest(app).await?;
     Ok(sources::compare_versions(
         app.installed_version.as_deref(),
-        None, // version_code 暂未持久化比较，见 storage::InstallRecord.version_code 可扩展
+        latest.version_code,
         &latest,
     ))
 }
@@ -394,11 +320,6 @@ async fn download_apk(url: &str, dest: &std::path::Path) -> Result<()> {
         .with_context(|| format!("写入文件失败: {}", dest.display()))?;
 
     Ok(())
-}
-
-fn default_db_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".local/share/retainium/retainium.db")
 }
 
 fn default_download_dir(backend: InstallerBackend) -> PathBuf {
