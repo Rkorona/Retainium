@@ -127,13 +127,10 @@ impl Installer for RishInstaller {
         }
     }
     async fn installed_version(&self, package_name: &str) -> Option<(String, Option<i64>)> {
-        // pm dump は読み取り専用で Shizuku 権限不要。
-        // rish 経由だと stdout がパイプに届かず空になる既知問題があるため、
-        // Termux から pm を直接呼び出して stdout を正しく取得する。
         // pm dump 是只读查询，不需要 Shizuku 权限。
-        // 经 rish 转发时 stdout 经常为空（已知问题），因此直接在 Termux 里调用 pm，
-        // 可以正常捕获输出。
-        let output = Command::new("pm")
+        // 经 rish 转发时 stdout 经常为空（已知问题），因此直接调用 pm 绝对路径，
+        // 绕开 rish 并避免 Termux 子进程 PATH 里可能没有 /system/bin 的问题。
+        let output = Command::new(PM_PATH)
             .args(["dump", package_name])
             .output()
             .await
