@@ -81,12 +81,6 @@ impl Installer for RishInstaller {
 
         // 第一步：确保 staging 目录存在（mkdir -p 幂等，已存在不会报错）
         let mkdir_output = self.run_rish(&["mkdir", "-p", STAGING_DIR]).await?;
-        eprintln!(
-            "[debug] mkdir exit={:?} stdout={:?} stderr={:?}",
-            mkdir_output.status.code(),
-            String::from_utf8_lossy(&mkdir_output.stdout),
-            String::from_utf8_lossy(&mkdir_output.stderr)
-        );
         if !mkdir_output.status.success() {
             return Ok(InstallOutcome::Failed(format!(
                 "创建 staging 目录失败: {}",
@@ -97,12 +91,6 @@ impl Installer for RishInstaller {
         // 第二步：把 APK 从 Termux 可写的共享存储路径复制到 system_server 可读的 /data/local/tmp。
         // 这一步是必须的，直接对 /sdcard 下的文件跑 pm install 会因为 SELinux 权限失败。
         let cp_output = self.run_rish(&["cp", apk_str, &staged_path]).await?;
-        eprintln!(
-            "[debug] cp exit={:?} stdout={:?} stderr={:?}",
-            cp_output.status.code(),
-            String::from_utf8_lossy(&cp_output.stdout),
-            String::from_utf8_lossy(&cp_output.stderr)
-        );
         if !cp_output.status.success() {
             return Ok(InstallOutcome::Failed(format!(
                 "复制 APK 到 {staged_path} 失败: {}",
@@ -114,12 +102,6 @@ impl Installer for RishInstaller {
         let install_output = self
             .run_rish(&[PM_PATH, "install", "-r", "--user", "0", &staged_path])
             .await?;
-        eprintln!(
-            "[debug] pm install exit={:?} stdout={:?} stderr={:?}",
-            install_output.status.code(),
-            String::from_utf8_lossy(&install_output.stdout),
-            String::from_utf8_lossy(&install_output.stderr)
-        );
 
         let stdout = String::from_utf8_lossy(&install_output.stdout);
         let stderr = String::from_utf8_lossy(&install_output.stderr);
@@ -145,15 +127,11 @@ impl Installer for RishInstaller {
         }
     }
     async fn installed_version(&self, package_name: &str) -> Option<(String, Option<i64>)> {
-        let output = self.run_rish(&[PM_PATH, "dump", package_name]).await;
-        eprintln!("[debug] installed_version raw result: {output:?}");
-        let output = output.ok()?;
+        let output = self.run_rish(&[PM_PATH, "dump", package_name]).await.ok()?;
         if !output.status.success() {
-            eprintln!("[debug] pm dump exit not success: {:?}", output.status);
             return None;
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        eprintln!("[debug] pm dump stdout len={} content={:?}", stdout.len(), &stdout[..stdout.len().min(200)]);
         super::parse_pm_dump_version(&stdout)
     }
 }
