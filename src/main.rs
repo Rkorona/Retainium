@@ -229,6 +229,10 @@ async fn main() -> Result<()> {
                             continue;
                         }
 
+                        // 尽量从 APK 提取包名：优先用已知的，否则用 aapt（需 `pkg install aapt`）
+                        let pkg_name: Option<String> = app.package_name.clone()
+                            .or_else(|| installer::extract_package_name(&apk_path));
+
                         println!("{}: 下载完成，开始安装...", app.id);
                         match backend.install(&apk_path).await {
                             Ok(InstallOutcome::Success) => {
@@ -239,6 +243,7 @@ async fn main() -> Result<()> {
                                     release.version_code,
                                     &release.apk_url,
                                     true,
+                                    pkg_name.as_deref(),
                                 )?;
                             }
                             Ok(InstallOutcome::RequiresUserConfirmation) => {
@@ -253,6 +258,7 @@ async fn main() -> Result<()> {
                                     release.version_code,
                                     &release.apk_url,
                                     false,
+                                    pkg_name.as_deref(),
                                 )?;
                             }
                             Ok(InstallOutcome::Failed(msg)) => {
@@ -263,6 +269,7 @@ async fn main() -> Result<()> {
                                     release.version_code,
                                     &release.apk_url,
                                     false,
+                                    pkg_name.as_deref(),
                                 )?;
                             }
                             Err(e) => {
@@ -303,6 +310,13 @@ async fn main() -> Result<()> {
 
 /// 把 TOML 里的静态配置 + SQLite 里的运行时状态（已装版本）合并成
 /// UpdateSource 需要的完整 AppConfig。
+///
+/// 包名解析优先级（从高到低）：
+///   1. TOML 中显式配置的 package_name
+///   2. F-Droid 订阅：source_identifier 本身就是包名
+///   3. 数据库里上次安装时记录的包名
+/// 只要拿到包名，就直接查询设备真实已安装版本（pm dump），
+/// 而不依赖可能被删除的 SQLite 历史。
 async fn build_app_config(
     entry: &AppEntry,
     storage: &Storage,
@@ -310,20 +324,33 @@ async fn build_app_config(
 ) -> Result<AppConfig> {
     let mut app: AppConfig = entry.into();
 
-    // 优先信任设备真实状态；查不到（没配 package_name / 查询失败）再退回 SQLite 历史
-    if let Some(pkg) = &entry.package_name {
-       // let result = backend.installed_version(pkg).await;
-        //eprintln!("[debug] installed_version({pkg}) = {result:?}");  // 加这行
-        
-        if let Some((version_name, _version_code)) = backend.installed_version(pkg).await {
+    // 三级级联解析包名
+    let pkg: Option<String> = if let Some(p) = &entry.package_name {
+        Some(p.clone())
+    } else if entry.source == sources::SourceType::FDroid {
+        // F-Droid 的 identifier 就是 Android 包名
+        Some(entry.identifier.clone())
+    } else {
+        // 从历史记录里取上次安装时保存的包名
+        storage.stored_package_name(&entry.id)?
+    };
+
+    // 有包名就查设备真实版本，优先于数据库历史
+    if let Some(ref p) = pkg {
+        if let Some((version_name, _version_code)) = backend.installed_version(p).await {
             app.installed_version = Some(version_name);
+            app.package_name = Some(p.clone());
             return Ok(app);
         }
     }
 
+    // 回退到数据库历史（设备未安装或包名未知）
     app.installed_version = storage
         .latest_installed_version(&entry.id)?
         .map(|r| r.version_name);
+    if let Some(p) = pkg {
+        app.package_name = Some(p);
+    }
     Ok(app)
 }
 

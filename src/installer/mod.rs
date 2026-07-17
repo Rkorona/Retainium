@@ -39,6 +39,29 @@ pub fn installer_for(backend: InstallerBackend) -> Box<dyn Installer> {
     }
 }
 
+/// 用 `aapt dump badging` 从本地 APK 文件提取 Android 包名。
+/// 需要设备上已安装 aapt（Termux: `pkg install aapt`）。
+/// 提取失败时静默返回 None，不影响安装流程。
+pub fn extract_package_name(apk_path: &std::path::Path) -> Option<String> {
+    let apk_str = apk_path.to_str()?;
+    let output = std::process::Command::new("aapt")
+        .args(["dump", "badging", apk_str])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // 目标行形如: package: name='com.example.app' versionCode='123' versionName='1.0'
+    stdout
+        .lines()
+        .find(|l| l.starts_with("package:"))
+        .and_then(|l| {
+            l.split_whitespace()
+                .find(|tok| tok.starts_with("name='"))
+                .and_then(|tok| tok.strip_prefix("name='"))
+                .and_then(|s| s.strip_suffix('\''))
+                .map(|s| s.to_string())
+        })
+}
+
 /// 从 `pm dump <package>` 的输出里提取 versionName / versionCode。
 /// 两者都在 "Packages:" 段落下，形如：
 ///     versionName=2.9.3
