@@ -63,11 +63,25 @@ impl UpdateSource for GitLabSource {
             .next()
             .ok_or_else(|| anyhow!("该项目没有任何 release"))?;
 
-        let apk_links: Vec<&GlLink> = release
+        // 第一步：硬排除（apk_exclude_pattern 始终生效）
+        let after_exclude: Vec<&GlLink> = release
             .assets
             .links
             .iter()
             .filter(|l| l.name.ends_with(".apk") || l.url.ends_with(".apk"))
+            .filter(|l| {
+                config
+                    .apk_exclude_pattern
+                    .as_ref()
+                    .map(|pat| !l.name.contains(pat.as_str()))
+                    .unwrap_or(true)
+            })
+            .collect();
+
+        // 第二步：在排除后的候选里再用 apk_pattern 精选
+        let after_pattern: Vec<&GlLink> = after_exclude
+            .iter()
+            .copied()
             .filter(|l| {
                 config
                     .apk_pattern
@@ -75,24 +89,22 @@ impl UpdateSource for GitLabSource {
                     .map(|pat| l.name.contains(pat.as_str()))
                     .unwrap_or(true)
             })
-            .filter(|a: &&GlLink| {
-                config.apk_exclude_pattern
-                    .as_ref()
-                    .map(|pat| !a.name.contains(pat.as_str()))
-                    .unwrap_or(true)
-            })
             .collect();
 
-        let link = match apk_links.len() {
-            0 => return Err(anyhow!(
-                "release {} 中没有匹配的 APK 附件（pattern: {:?}）",
-                release.tag_name, config.apk_pattern
-            )),
-            1 => apk_links[0],
-            _ => return Err(anyhow!(
-                "release {} 中有 {} 个匹配的 APK，请设置更精确的 apk_pattern",
+        let link = match (after_pattern.len(), after_exclude.len()) {
+            (1, _) => after_pattern[0],
+            (n, _) if n > 1 => return Err(anyhow!(
+                "release {} 中有 {} 个匹配的 APK，请设置更精确的 apk_pattern 来筛选: {:?}",
                 release.tag_name,
-                apk_links.len()
+                n,
+                after_pattern.iter().map(|l| &l.name).collect::<Vec<_>>()
+            )),
+            (0, 1) => after_exclude[0], // pattern 未命中，但唯一候选无歧义
+            _ => return Err(anyhow!(
+                "release {} 中没有匹配的 APK 附件（pattern: {:?}，排除后剩余: {:?}）",
+                release.tag_name,
+                config.apk_pattern,
+                after_exclude.iter().map(|l| &l.name).collect::<Vec<_>>()
             )),
         };
 
