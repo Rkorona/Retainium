@@ -41,7 +41,8 @@ impl From<&AppEntry> for AppConfig {
             source_identifier: entry.identifier.clone(),
             apk_pattern: entry.apk_pattern.clone(),
             apk_exclude_pattern: entry.apk_exclude_pattern.clone(),
-            installed_version: None, // 由调用方通过 pm dump 查询设备后填充
+            installed_version: None,      // 由调用方通过 pm dump 查询设备后填充
+            installed_version_code: None, // 同上
             package_name: entry.package_name.clone(),
         }
     }

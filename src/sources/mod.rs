@@ -21,16 +21,17 @@ pub struct ReleaseInfo {
     pub release_notes: Option<String>,
 }
 
-/// 一个"订阅"的应用来源配置。存储在 SQLite 里，反序列化后传给对应的 Source 实现。
+/// 一个"订阅"的应用来源配置。反序列化后传给对应的 Source 实现。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub id: String, // 用户自定义 app 标识，如 "obtainium"
     pub source_type: SourceType,
     pub source_identifier: String, // 例如 "owner/repo" (GitHub/GitLab) 或 F-Droid 的 package id
     pub apk_pattern: Option<String>, // 当 release 有多个 APK 附件时，用正则/关键字筛选
+    pub apk_exclude_pattern: Option<String>,
     pub installed_version: Option<String>,
+    pub installed_version_code: Option<i64>, // 来自 pm dump，用于 versionCode 数字比较
     pub package_name: Option<String>,
-    pub apk_exclude_pattern: Option<String>, // 用于安装后校验，来自 AndroidManifest
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,13 +70,18 @@ pub enum UpdateCheckResult {
     UpdateAvailable(ReleaseInfo),
 }
 
-/// 统一的版本比较逻辑：优先用 version_code（纯数字比较，最可靠），
-/// 否则退回 semver 解析，都失败则退回字符串不等比较（至少能发现"变了"）。
+/// 统一的版本比较逻辑，优先级从高到低：
+///   1. 双方都有 versionCode → 纯数字比较，最可靠
+///   2. 严格 semver 解析（strip 'v' 前缀后直接 parse）
+///   3. 宽松 semver：取版本字符串里前三个纯数字段组成 major.minor.patch 再比
+///      （用于 "1.4.8.r349" vs "1.4.8" 这类 tag 与 versionName 不完全一致的情况）
+///   4. 字符串不等兜底
 pub fn compare_versions(
     installed: Option<&str>,
     installed_code: Option<i64>,
     latest: &ReleaseInfo,
 ) -> UpdateCheckResult {
+    // 1. versionCode 数字比较
     if let (Some(inst_code), Some(latest_code)) = (installed_code, latest.version_code) {
         return if latest_code > inst_code {
             UpdateCheckResult::UpdateAvailable(latest.clone())
@@ -85,28 +91,62 @@ pub fn compare_versions(
     }
 
     let Some(installed) = installed else {
-        // 从未安装过，视为有更新
         return UpdateCheckResult::UpdateAvailable(latest.clone());
     };
 
-    match (
-        semver::Version::parse(installed.trim_start_matches('v')),
-        semver::Version::parse(latest.version_name.trim_start_matches('v')),
+    let inst_stripped = installed.trim_start_matches('v');
+    let latest_stripped = latest.version_name.trim_start_matches('v');
+
+    // 2. 严格 semver
+    if let (Ok(iv), Ok(lv)) = (
+        semver::Version::parse(inst_stripped),
+        semver::Version::parse(latest_stripped),
     ) {
-        (Ok(inst_v), Ok(latest_v)) => {
-            if latest_v > inst_v {
-                UpdateCheckResult::UpdateAvailable(latest.clone())
-            } else {
-                UpdateCheckResult::UpToDate
-            }
-        }
-        _ => {
-            // semver 解析失败，退回字符串比较
-            if installed != latest.version_name {
-                UpdateCheckResult::UpdateAvailable(latest.clone())
-            } else {
-                UpdateCheckResult::UpToDate
-            }
-        }
+        return if lv > iv {
+            UpdateCheckResult::UpdateAvailable(latest.clone())
+        } else {
+            UpdateCheckResult::UpToDate
+        };
     }
+
+    // 3. 宽松 semver：从点分字段里提取前三个纯数字段
+    if let (Some(iv), Some(lv)) = (lenient_semver(inst_stripped), lenient_semver(latest_stripped)) {
+        return if lv > iv {
+            UpdateCheckResult::UpdateAvailable(latest.clone())
+        } else {
+            UpdateCheckResult::UpToDate
+        };
+    }
+
+    // 4. 字符串兜底
+    if inst_stripped != latest_stripped {
+        UpdateCheckResult::UpdateAvailable(latest.clone())
+    } else {
+        UpdateCheckResult::UpToDate
+    }
+}
+
+/// 宽松 semver 解析：从任意版本字符串里提取开头的纯数字点分段。
+/// "1.4.8.r349" → 1.4.8，"2.0" → 2.0.0，"abc" → None
+fn lenient_semver(s: &str) -> Option<semver::Version> {
+    let parts: Vec<u64> = s
+        .split('.')
+        .take(3)
+        .map(|seg| {
+            // 只取每段开头连续的数字字符
+            let digits: String = seg.chars().take_while(|c| c.is_ascii_digit()).collect();
+            digits.parse::<u64>().ok()
+        })
+        .take_while(|v| v.is_some())
+        .flatten()
+        .collect();
+
+    if parts.is_empty() {
+        return None;
+    }
+    Some(semver::Version::new(
+        parts[0],
+        parts.get(1).copied().unwrap_or(0),
+        parts.get(2).copied().unwrap_or(0),
+    ))
 }

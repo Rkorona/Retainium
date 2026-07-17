@@ -271,8 +271,9 @@ async fn build_app_config(entry: &AppEntry, backend: &dyn Installer) -> Result<A
 
     // 有包名就直接查设备真实版本
     if let Some(ref p) = pkg {
-        if let Some((version_name, _)) = backend.installed_version(p).await {
+        if let Some((version_name, version_code)) = backend.installed_version(p).await {
             app.installed_version = Some(version_name);
+            app.installed_version_code = version_code;
         }
         app.package_name = Some(p.clone());
     }
@@ -285,7 +286,7 @@ async fn check_one(app: &AppConfig) -> Result<UpdateCheckResult> {
     let latest = source.fetch_latest(app).await?;
     Ok(sources::compare_versions(
         app.installed_version.as_deref(),
-        latest.version_code,
+        app.installed_version_code,
         &latest,
     ))
 }
