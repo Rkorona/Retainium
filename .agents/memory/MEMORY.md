@@ -1,0 +1,1 @@
+- [Android import environment](android-import-environment.md) — imported native Android projects may need a separately provisioned SDK before Gradle verification can run.
