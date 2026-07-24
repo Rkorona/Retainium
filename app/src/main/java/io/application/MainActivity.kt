@@ -35,7 +35,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -65,13 +64,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.application.ui.theme.ApplicationTheme
 import io.application.ui.theme.Amber
+import io.application.ui.theme.ApplicationTheme
 import io.application.ui.theme.Ink
 import io.application.ui.theme.Mist
 import kotlinx.coroutines.delay
@@ -641,17 +641,22 @@ private fun BagContent() {
             style = MaterialTheme.typography.bodyMedium,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Relic("旧银戒", "未冷却", Amber)
-            Relic("空白页", "可书写", Mist)
-            Relic("灰烬瓶", "一次性", Color(0xFFB88BD9))
+            Relic("旧银戒", "未冷却", Amber, modifier = Modifier.weight(1f))
+            Relic("空白页", "可书写", Mist, modifier = Modifier.weight(1f))
+            Relic("灰烬瓶", "一次性", Color(0xFFB88BD9), modifier = Modifier.weight(1f))
         }
     }
 }
 
 @Composable
-private fun Relic(name: String, state: String, tint: Color) {
+private fun Relic(
+    name: String, 
+    state: String, 
+    tint: Color,
+    modifier: Modifier = Modifier
+) {
     Surface(
-        modifier = Modifier.weight(1f),
+        modifier = modifier,
         color = tint.copy(alpha = .08f),
         shape = RoundedCornerShape(18.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, tint.copy(alpha = .25f)),
