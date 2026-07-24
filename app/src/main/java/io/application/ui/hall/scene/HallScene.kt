@@ -1,5 +1,6 @@
 package io.application.ui.hall.scene
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.application.game.MentalState
 import io.application.ui.theme.Amber
 import io.application.ui.theme.Mist
 
@@ -43,6 +45,7 @@ fun RoomScene(
     memoryPhrase: String,
     memoryCaption: String,
     isEntering: Boolean,
+    mentalState: MentalState,
 ) {
     val infinite = rememberInfiniteTransition(label = "room-breath")
     val breath by infinite.animateFloat(
@@ -69,6 +72,17 @@ fun RoomScene(
         label = "gate-scale",
     )
 
+    // 阶段4：精神状态映射到光环颜色，平滑动画过渡
+    val toneColor by animateColorAsState(
+        targetValue = when (mentalState) {
+            MentalState.STEADY -> Amber
+            MentalState.HAUNTED -> Color(0xFFB88BD9)   // 紫色——困扰、缠绕
+            MentalState.WOUNDED -> Color(0xFFD97777)   // 暗红——受伤、疼痛
+        },
+        animationSpec = tween(durationMillis = 1_400),
+        label = "mental-tone",
+    )
+
     Box(
         modifier = Modifier
             .fillMaxHeight(.82f)
@@ -78,7 +92,7 @@ fun RoomScene(
                 val center = Offset(size.width / 2f, size.height / 2f)
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(Amber.copy(alpha = glow * .22f), Color.Transparent),
+                        colors = listOf(toneColor.copy(alpha = glow * .22f), Color.Transparent),
                         center = center,
                         radius = size.minDimension * .46f,
                     ),
@@ -103,13 +117,13 @@ fun RoomScene(
                 style = Stroke(width = 1.dp.toPx()),
             )
             drawCircle(
-                color = Amber.copy(alpha = .17f),
+                color = toneColor.copy(alpha = .17f),
                 radius = radius * breath,
                 center = center,
                 style = Stroke(width = 1.2.dp.toPx()),
             )
             drawArc(
-                color = Amber.copy(alpha = .45f),
+                color = toneColor.copy(alpha = .45f),
                 startAngle = 205f,
                 sweepAngle = 82f,
                 useCenter = false,
@@ -133,8 +147,8 @@ fun RoomScene(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             androidx.compose.material3.Text(
-                text = "“",
-                color = Amber.copy(alpha = .65f),
+                text = "\u201c",
+                color = toneColor.copy(alpha = .65f),
                 fontSize = 46.sp,
                 lineHeight = 32.sp,
                 fontWeight = FontWeight.Bold,

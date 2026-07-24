@@ -1,5 +1,8 @@
 package io.application.game
 
+import io.application.game.story.StoryEffect
+import io.application.game.story.act3Scene
+
 enum class MentalState {
     STEADY,
     WOUNDED,
@@ -38,6 +41,8 @@ data class StoryGateState(
     val subtitle: String,
     val description: String,
     val isVisited: Boolean = false,
+    /** 记录玩家在此副本中选择了哪条路径，null 表示尚未进入 */
+    val visitedChoiceId: String? = null,
 )
 
 data class GameState(
@@ -55,6 +60,40 @@ data class GameState(
 ) {
     val unreadEchoCount: Int
         get() = echoes.count { it.isUnread }
+
+    // ── 阶段4：派生展示值，让大厅记住玩家做过什么 ───────────────────────
+
+    /** 中央记忆核心文案：随关键选择变化 */
+    val displayMemoryPhrase: String
+        get() = when {
+            mentalState == MentalState.HAUNTED -> "门后的声音\n和我一模一样"
+            gate.visitedChoiceId == "enter" -> "我穿过了门\n光是冷的"
+            else -> memoryPhrase
+        }
+
+    /** 记忆核心副标题：随关键选择变化 */
+    val displayMemoryCaption: String
+        get() = when {
+            mentalState == MentalState.HAUNTED -> "记忆避难所 · 正在动摇"
+            gate.isVisited -> "记忆避难所 · 已改变"
+            else -> memoryCaption
+        }
+
+    /** 无名门展示状态：反映玩家的副本选择路径 */
+    val displayGate: StoryGateState
+        get() = when (gate.visitedChoiceId) {
+            "enter" -> gate.copy(
+                title = "你曾踏过的门",
+                subtitle = "第三幕 · 已穿越",
+                description = "门后的光是冷的。\n你已经知道了。",
+            )
+            "wait" -> gate.copy(
+                title = "仍在等你的门",
+                subtitle = "第三幕 · 你还在外面",
+                description = "它没有关上。\n雾还在。",
+            )
+            else -> gate
+        }
 
     companion object {
         fun initial(): GameState = GameState(
@@ -80,7 +119,7 @@ data class GameState(
             ),
             selectedRelicId = null,
             vow = Vow(
-                text = "“我会找到她，无论门后是什么。”",
+                text = "\u201c我会找到她，无论门后是什么。\u201d",
                 description = "这句话仍然拥有重量。它会影响你在第三幕中的选择。",
             ),
             mentalState = MentalState.STEADY,
@@ -115,29 +154,39 @@ fun GameState.reduce(action: GameAction): GameState = when (action) {
         },
     )
 
-    is GameAction.MakeChoice -> when (action.choiceId) {
-        "enter" -> copy(
-            gate = gate.copy(isVisited = true),
-            echoes = listOf(
-                Echo(
-                    id = "gate-enter",
-                    text = "你穿过了门。光是冷的，像被清洗过的记忆。",
-                    meta = "无名门 · 已穿越",
-                    isUnread = true,
-                )
-            ) + echoes,
-        )
-        "wait" -> copy(
-            mentalState = MentalState.HAUNTED,
-            echoes = listOf(
-                Echo(
-                    id = "gate-wait",
-                    text = "你停下来了。门没有关上——它只是继续等着你。",
-                    meta = "无名门 · 观望",
-                    isUnread = true,
-                )
-            ) + echoes,
-        )
-        else -> this
-    }
+    // 阶段3：通过 StoryEffect 列表处理副作用，unknown choiceId 静默 no-op
+    is GameAction.MakeChoice ->
+        act3Scene.choices
+            .firstOrNull { it.id == action.choiceId }
+            ?.let { choice ->
+                choice.effects.fold(this) { state, effect ->
+                    when (effect) {
+                        is StoryEffect.AddEcho -> state.copy(
+                            echoes = listOf(
+                                Echo(
+                                    id = effect.id,
+                                    text = effect.text,
+                                    meta = effect.meta,
+                                    isUnread = true,
+                                )
+                            ) + state.echoes,
+                        )
+                        is StoryEffect.SetMentalState -> state.copy(mentalState = effect.state)
+                        is StoryEffect.MarkGateVisited -> state.copy(
+                            gate = state.gate.copy(
+                                isVisited = true,
+                                visitedChoiceId = effect.choiceId,
+                            ),
+                        )
+                        StoryEffect.ConsumeSelectedRelic -> {
+                            val relicId = state.selectedRelicId ?: return@fold state
+                            state.copy(
+                                relics = state.relics.map { r ->
+                                    if (r.id == relicId) r.copy(state = "已消耗") else r
+                                },
+                            )
+                        }
+                    }
+                }
+            } ?: this
 }

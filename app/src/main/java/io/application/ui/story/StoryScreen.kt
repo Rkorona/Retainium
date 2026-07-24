@@ -50,8 +50,8 @@ import io.application.game.GameAction
 import io.application.game.GameState
 import io.application.game.story.ParagraphKind
 import io.application.game.story.StoryChoice
-import io.application.game.story.act3Choices
-import io.application.game.story.act3Paragraphs
+import io.application.game.story.StoryParagraph
+import io.application.game.story.act3Scene
 import io.application.ui.hall.scene.drawRoomAtmosphere
 import io.application.ui.theme.Amber
 import io.application.ui.theme.Ink
@@ -70,11 +70,12 @@ fun StoryScreen(
     // 从 0 开始：屏幕过渡动画结束后再显示第一段，形成分段入场层次
     var revealedCount by remember { mutableStateOf(0) }
     var phase by remember { mutableStateOf(StoryPhase.Reading) }
-    var choiceResult by remember { mutableStateOf("") }
+    var selectedChoice by remember { mutableStateOf<StoryChoice?>(null) }
     val scrollState = rememberScrollState()
     val scope = rememberCoroutineScope()
 
-    val isLastParagraph = revealedCount >= act3Paragraphs.size
+    val paragraphs = act3Scene.paragraphs
+    val isLastParagraph = revealedCount >= paragraphs.size
 
     BackHandler { onExitStory() }
 
@@ -113,19 +114,13 @@ fun StoryScreen(
                     .padding(horizontal = 28.dp)
                     .padding(top = 8.dp, bottom = 24.dp),
             ) {
-                act3Paragraphs.forEachIndexed { index, paragraph ->
+                paragraphs.forEachIndexed { index, paragraph ->
                     AnimatedVisibility(
                         visible = index < revealedCount,
                         enter = fadeIn(tween(700)) + slideInVertically(tween(600)) { it / 3 },
                         exit = fadeOut(tween(200)),
                     ) {
-                        when (paragraph.kind) {
-                            ParagraphKind.Scene -> SceneParagraph(text = paragraph.text)
-                            ParagraphKind.Dialogue -> DialogueParagraph(
-                                speaker = paragraph.speaker.orEmpty(),
-                                text = paragraph.text,
-                            )
-                        }
+                        StoryParagraphView(paragraph)
                     }
                 }
 
@@ -135,10 +130,10 @@ fun StoryScreen(
                     exit = fadeOut(tween(300)),
                 ) {
                     ChoiceSection(
-                        choices = act3Choices,
+                        choices = act3Scene.choices,
                         onChoose = { choice ->
                             onAction(GameAction.MakeChoice(choice.id))
-                            choiceResult = choice.resultText
+                            selectedChoice = choice
                             phase = StoryPhase.Result
                             scope.launch {
                                 delay(150)
@@ -154,7 +149,7 @@ fun StoryScreen(
                     exit = fadeOut(tween(200)),
                 ) {
                     ResultSection(
-                        text = choiceResult,
+                        paragraphs = selectedChoice?.resultParagraphs ?: emptyList(),
                         onReturn = onExitStory,
                     )
                 }
@@ -222,6 +217,18 @@ private fun StoryTopBar(
     }
 
     HorizontalDivider(color = Mist.copy(alpha = .07f))
+}
+
+/** 根据段落类型分发到对应的 Composable */
+@Composable
+private fun StoryParagraphView(paragraph: StoryParagraph) {
+    when (paragraph.kind) {
+        ParagraphKind.Scene -> SceneParagraph(text = paragraph.text)
+        ParagraphKind.Dialogue -> DialogueParagraph(
+            speaker = paragraph.speaker.orEmpty(),
+            text = paragraph.text,
+        )
+    }
 }
 
 @Composable
@@ -314,7 +321,7 @@ private fun ChoiceSection(
 
 @Composable
 private fun ResultSection(
-    text: String,
+    paragraphs: List<StoryParagraph>,
     onReturn: () -> Unit,
 ) {
     Column(
@@ -324,13 +331,9 @@ private fun ResultSection(
     ) {
         HorizontalDivider(color = Mist.copy(alpha = .1f))
         Spacer(Modifier.height(28.dp))
-        Text(
-            text = text,
-            color = Mist.copy(alpha = .7f),
-            style = MaterialTheme.typography.bodyLarge,
-            fontStyle = FontStyle.Italic,
-            lineHeight = 30.sp,
-        )
+        paragraphs.forEach { paragraph ->
+            StoryParagraphView(paragraph)
+        }
         Spacer(Modifier.height(40.dp))
         Text(
             text = "──  本幕结束  ──",

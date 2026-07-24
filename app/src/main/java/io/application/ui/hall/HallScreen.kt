@@ -117,9 +117,10 @@ fun HallScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 RoomScene(
-                    memoryPhrase = gameState.memoryPhrase,
-                    memoryCaption = gameState.memoryCaption,
+                    memoryPhrase = gameState.displayMemoryPhrase,
+                    memoryCaption = gameState.displayMemoryCaption,
                     isEntering = isEntering,
+                    mentalState = gameState.mentalState,
                 )
 
                 Whisper(
@@ -132,7 +133,7 @@ fun HallScreen(
 
                 StoryGate(
                     modifier = Modifier.align(Alignment.TopEnd),
-                    gate = gameState.gate,
+                    gate = gameState.displayGate,
                     isEntering = isEntering,
                     onEnter = ::enterStory,
                 )
