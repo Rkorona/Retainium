@@ -37,6 +37,7 @@ data class StoryGateState(
     val title: String,
     val subtitle: String,
     val description: String,
+    val isVisited: Boolean = false,
 )
 
 data class GameState(
@@ -91,6 +92,7 @@ sealed interface GameAction {
     data class SelectRelic(val relicId: String) : GameAction
     data object KeepVow : GameAction
     data class ReadEcho(val echoId: String) : GameAction
+    data class MakeChoice(val choiceId: String) : GameAction
 }
 
 fun GameState.reduce(action: GameAction): GameState = when (action) {
@@ -112,4 +114,30 @@ fun GameState.reduce(action: GameAction): GameState = when (action) {
             if (echo.id == action.echoId) echo.copy(isUnread = false) else echo
         },
     )
+
+    is GameAction.MakeChoice -> when (action.choiceId) {
+        "enter" -> copy(
+            gate = gate.copy(isVisited = true),
+            echoes = listOf(
+                Echo(
+                    id = "gate-enter",
+                    text = "你穿过了门。光是冷的，像被清洗过的记忆。",
+                    meta = "无名门 · 已穿越",
+                    isUnread = true,
+                )
+            ) + echoes,
+        )
+        "wait" -> copy(
+            mentalState = MentalState.HAUNTED,
+            echoes = listOf(
+                Echo(
+                    id = "gate-wait",
+                    text = "你停下来了。门没有关上——它只是继续等着你。",
+                    meta = "无名门 · 观望",
+                    isUnread = true,
+                )
+            ) + echoes,
+        )
+        else -> this
+    }
 }

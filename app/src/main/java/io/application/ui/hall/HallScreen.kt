@@ -56,6 +56,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 fun HallScreen(
     gameState: GameState,
     onAction: (GameAction) -> Unit,
+    onEnterStory: () -> Unit,
 ) {
     var displayedPanel by remember { mutableStateOf<HallPanel?>(null) }
     var isPanelVisible by remember { mutableStateOf(false) }
@@ -80,10 +81,9 @@ fun HallScreen(
         if (!isEntering) {
             isEntering = true
             scope.launch {
-                delay(1_400)
-                toastMessage = "下一幕正在翻页……"
-                delay(1_100)
+                delay(900)
                 isEntering = false
+                onEnterStory()
             }
         }
     }
