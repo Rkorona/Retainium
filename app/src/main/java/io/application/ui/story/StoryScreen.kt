@@ -67,7 +67,8 @@ fun StoryScreen(
     onAction: (GameAction) -> Unit,
     onExitStory: () -> Unit,
 ) {
-    var revealedCount by remember { mutableStateOf(1) }
+    // 从 0 开始：屏幕过渡动画结束后再显示第一段，形成分段入场层次
+    var revealedCount by remember { mutableStateOf(0) }
     var phase by remember { mutableStateOf(StoryPhase.Reading) }
     var choiceResult by remember { mutableStateOf("") }
     val scrollState = rememberScrollState()
@@ -76,6 +77,12 @@ fun StoryScreen(
     val isLastParagraph = revealedCount >= act3Paragraphs.size
 
     BackHandler { onExitStory() }
+
+    // 等屏幕滑入动画（520ms）接近尾声后，第一段自然浮现
+    LaunchedEffect(Unit) {
+        delay(380)
+        revealedCount = 1
+    }
 
     LaunchedEffect(revealedCount) {
         delay(250)
@@ -154,7 +161,7 @@ fun StoryScreen(
             }
 
             AnimatedVisibility(
-                visible = phase == StoryPhase.Reading,
+                visible = phase == StoryPhase.Reading && revealedCount > 0,
                 enter = fadeIn(tween(300)),
                 exit = fadeOut(tween(200)),
             ) {
