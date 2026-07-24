@@ -57,6 +57,7 @@ fun HallScreen(
     gameState: GameState,
     onAction: (GameAction) -> Unit,
     onEnterStory: () -> Unit,
+    onClearSave: () -> Unit = {},
 ) {
     var displayedPanel by remember { mutableStateOf<HallPanel?>(null) }
     var isPanelVisible by remember { mutableStateOf(false) }
@@ -212,6 +213,7 @@ fun HallScreen(
                     gameState = gameState,
                     onAction = onAction,
                     onDismiss = ::dismissPanel,
+                    onClearSave = onClearSave,
                 )
             }
         }

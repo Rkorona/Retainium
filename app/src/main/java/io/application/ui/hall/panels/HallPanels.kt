@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -21,8 +22,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -48,6 +52,7 @@ fun HallPanelSheet(
     gameState: GameState,
     onAction: (GameAction) -> Unit,
     onDismiss: () -> Unit,
+    onClearSave: () -> Unit = {},
 ) {
     val dragOffsetPx = remember(panel) { Animatable(0f) }
     val density = LocalDensity.current
@@ -138,6 +143,7 @@ fun HallPanelSheet(
                 HallPanel.Vow -> VowContent(
                     gameState = gameState,
                     onKeepVow = { onAction(GameAction.KeepVow) },
+                    onClearSave = onClearSave,
                 )
             }
         }
@@ -248,7 +254,10 @@ private fun relicToneColor(tone: RelicTone): Color = when (tone) {
 private fun VowContent(
     gameState: GameState,
     onKeepVow: () -> Unit,
+    onClearSave: () -> Unit = {},
 ) {
+    var showClearConfirm by remember { mutableStateOf(false) }
+
     Column {
         Text(
             text = gameState.vow.text,
@@ -278,5 +287,46 @@ private fun VowContent(
                 fontWeight = FontWeight.SemiBold,
             )
         }
+        Spacer(modifier = Modifier.height(20.dp))
+        TextButton(
+            onClick = { showClearConfirm = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = "重置游戏",
+                color = Mist.copy(alpha = .32f),
+                style = MaterialTheme.typography.labelMedium,
+            )
+        }
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            containerColor = Color(0xFF211D27),
+            titleContentColor = Mist,
+            textContentColor = Mist.copy(alpha = .65f),
+            title = {
+                Text("清除存档？")
+            },
+            text = {
+                Text("所有进度、选择和余响都会消失，回到故事最初。此操作无法撤销。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearConfirm = false
+                        onClearSave()
+                    },
+                ) {
+                    Text("清除", color = Color(0xFFE07070))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) {
+                    Text("取消", color = Mist.copy(alpha = .55f))
+                }
+            },
+        )
     }
 }

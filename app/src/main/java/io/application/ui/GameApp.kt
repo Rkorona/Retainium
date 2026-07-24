@@ -11,16 +11,23 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 import io.application.game.GameAction
+import io.application.game.GameRepository
 import io.application.game.GameState
 import io.application.game.reduce
+import io.application.game.restoreFrom
 import io.application.ui.hall.HallScreen
 import io.application.ui.story.StoryScreen
 import io.application.ui.theme.ApplicationTheme
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 // Material 3 Expressive 标准曲线
 // 强调减速：用于进入屏幕的元素——快速启动，平滑落地
@@ -35,8 +42,45 @@ private sealed class AppScreen {
 
 @Composable
 fun GameApp() {
+    val context = LocalContext.current
+    val repository = remember { GameRepository(context) }
+    val scope = rememberCoroutineScope()
+
     var gameState by remember { mutableStateOf(GameState.initial()) }
+    var isLoaded by remember { mutableStateOf(false) }
     var currentScreen by remember { mutableStateOf<AppScreen>(AppScreen.Hall) }
+
+    // ── 启动时从 DataStore 读取存档（取第一个值即退出，不持续监听）─────────
+    LaunchedEffect(Unit) {
+        val saved = repository.savedState.first()
+        if (saved != null) {
+            gameState = GameState.initial().restoreFrom(saved)
+        }
+        isLoaded = true
+    }
+
+    // ── 每次状态变化后自动保存（仅在初始加载完成后触发）────────────────────
+    LaunchedEffect(gameState, isLoaded) {
+        if (isLoaded) {
+            repository.save(gameState)
+        }
+    }
+
+    fun dispatch(action: GameAction) {
+        gameState = gameState.reduce(action)
+    }
+
+    // ── 清除存档：清空 DataStore，重置状态，回到大厅 ─────────────────────────
+    fun clearSave() {
+        scope.launch {
+            repository.clear()
+            gameState = GameState.initial()
+            currentScreen = AppScreen.Hall
+        }
+    }
+
+    // 存档尚未加载完毕时不渲染任何内容，避免初始状态闪现
+    if (!isLoaded) return
 
     ApplicationTheme {
         AnimatedContent(
@@ -83,12 +127,13 @@ fun GameApp() {
             when (screen) {
                 is AppScreen.Hall -> HallScreen(
                     gameState = gameState,
-                    onAction = { gameState = gameState.reduce(it) },
+                    onAction = ::dispatch,
                     onEnterStory = { currentScreen = AppScreen.Story },
+                    onClearSave = ::clearSave,
                 )
                 is AppScreen.Story -> StoryScreen(
                     gameState = gameState,
-                    onAction = { gameState = gameState.reduce(it) },
+                    onAction = ::dispatch,
                     onExitStory = { currentScreen = AppScreen.Hall },
                 )
             }
