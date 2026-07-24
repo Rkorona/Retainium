@@ -64,9 +64,11 @@ fun HallPanelSheet(
                     onVerticalDrag = { change, dragAmount ->
                         change.consume()
                         if (dragAmount > 0f) {
-                            dragOffsetPx.snapTo(
-                                (dragOffsetPx.value + dragAmount).coerceAtMost(900f),
-                            )
+                            scope.launch {
+                                dragOffsetPx.snapTo(
+                                    (dragOffsetPx.value + dragAmount).coerceAtMost(900f),
+                                )
+                            }
                         }
                     },
                     onDragEnd = {
