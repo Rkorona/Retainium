@@ -1,1 +1,2 @@
 - [Android import environment](android-import-environment.md) — imported native Android projects may need a separately provisioned SDK before Gradle verification can run.
+- [Compose sheet dismissal](compose-sheet-dismissal.md) — bottom sheets need separate rendered identity and visibility state so exit animations can finish before removal.

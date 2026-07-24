@@ -1,5 +1,6 @@
 package io.application.ui.hall
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.fadeIn
@@ -9,6 +10,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import io.application.game.GameAction
 import io.application.game.GameState
@@ -54,10 +57,24 @@ fun HallScreen(
     gameState: GameState,
     onAction: (GameAction) -> Unit,
 ) {
-    var openPanel by remember { mutableStateOf<HallPanel?>(null) }
+    var displayedPanel by remember { mutableStateOf<HallPanel?>(null) }
+    var isPanelVisible by remember { mutableStateOf(false) }
     var isEntering by remember { mutableStateOf(false) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+
+    fun showPanel(panel: HallPanel) {
+        displayedPanel = panel
+        isPanelVisible = true
+    }
+
+    fun dismissPanel() {
+        isPanelVisible = false
+    }
+
+    BackHandler(enabled = displayedPanel != null) {
+        dismissPanel()
+    }
 
     fun enterStory() {
         if (!isEntering) {
@@ -127,7 +144,7 @@ fun HallScreen(
                         .align(Alignment.CenterStart)
                         .offset(y = 92.dp),
                     tint = Mist,
-                    onClick = { openPanel = HallPanel.Echoes },
+                    onClick = { showPanel(HallPanel.Echoes) },
                 )
 
                 OrbitButton(
@@ -137,7 +154,7 @@ fun HallScreen(
                         .align(Alignment.CenterEnd)
                         .offset(y = 50.dp),
                     tint = io.application.ui.theme.Amber,
-                    onClick = { openPanel = HallPanel.Bag },
+                    onClick = { showPanel(HallPanel.Bag) },
                 )
 
                 OrbitButton(
@@ -147,7 +164,7 @@ fun HallScreen(
                         .align(Alignment.BottomCenter)
                         .offset(y = (-4).dp),
                     tint = Color(0xFFB88BD9),
-                    onClick = { openPanel = HallPanel.Vow },
+                    onClick = { showPanel(HallPanel.Vow) },
                 )
             }
 
@@ -155,26 +172,45 @@ fun HallScreen(
         }
 
         AnimatedVisibility(
-            visible = openPanel != null,
+            visible = isPanelVisible && displayedPanel != null,
+            modifier = Modifier.fillMaxSize(),
+            enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 240)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = .28f))
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { dismissPanel() })
+                    },
+            )
+        }
+
+        AnimatedVisibility(
+            visible = isPanelVisible && displayedPanel != null,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = fadeIn(animationSpec = tween(durationMillis = 180)) +
                 slideInVertically(
-                    animationSpec = androidx.compose.animation.core.tween(
+                    animationSpec = tween(
                         durationMillis = 420,
                         easing = FastOutSlowInEasing,
                     ),
                 ) { it },
-            exit = fadeOut(animationSpec = tween(durationMillis = 130)) +
+            exit = fadeOut(animationSpec = tween(durationMillis = 240)) +
                 slideOutVertically(
-                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+                    animationSpec = tween(
+                        durationMillis = 360,
+                        easing = FastOutSlowInEasing,
+                    ),
                 ) { it },
         ) {
-            openPanel?.let { panel ->
+            displayedPanel?.let { panel ->
                 HallPanelSheet(
                     panel = panel,
                     gameState = gameState,
                     onAction = onAction,
-                    onDismiss = { openPanel = null },
+                    onDismiss = ::dismissPanel,
                 )
             }
         }
@@ -207,6 +243,13 @@ fun HallScreen(
         if (toastMessage != null) {
             delay(2_400)
             toastMessage = null
+        }
+    }
+
+    LaunchedEffect(isPanelVisible, displayedPanel) {
+        if (!isPanelVisible && displayedPanel != null) {
+            delay(380)
+            displayedPanel = null
         }
     }
 }

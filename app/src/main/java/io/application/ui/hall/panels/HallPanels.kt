@@ -1,12 +1,15 @@
 package io.application.ui.hall.panels
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -16,11 +19,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import io.application.game.GameAction
 import io.application.game.GameState
 import io.application.game.Relic
@@ -37,9 +49,48 @@ fun HallPanelSheet(
     onAction: (GameAction) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val dragOffsetPx = remember(panel) { Animatable(0f) }
+    val density = LocalDensity.current
+    val dismissThreshold = with(density) { 120.dp.toPx() }
+    val scope = rememberCoroutineScope()
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
+            .offset { IntOffset(0, dragOffsetPx.value.roundToInt()) }
+            .pointerInput(panel) {
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        change.consume()
+                        if (dragAmount > 0f) {
+                            dragOffsetPx.snapTo(
+                                (dragOffsetPx.value + dragAmount).coerceAtMost(900f),
+                            )
+                        }
+                    },
+                    onDragEnd = {
+                        if (dragOffsetPx.value >= dismissThreshold) {
+                            onDismiss()
+                        } else {
+                            scope.launch {
+                                dragOffsetPx.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = tween(durationMillis = 220),
+                                )
+                            }
+                        }
+                    },
+                    onDragCancel = {
+                        scope.launch {
+                            dragOffsetPx.animateTo(
+                                targetValue = 0f,
+                                animationSpec = tween(durationMillis = 220),
+                            )
+                        }
+                    },
+                )
+            }
             .padding(10.dp),
         color = Color(0xFF211D27).copy(alpha = .98f),
         contentColor = Mist,
@@ -47,7 +98,10 @@ fun HallPanelSheet(
         tonalElevation = 10.dp,
         shadowElevation = 18.dp,
     ) {
-        Column(modifier = Modifier.padding(24.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(24.dp),
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
